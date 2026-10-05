@@ -1,0 +1,50 @@
+from django.utils import timezone
+from rest_framework import serializers
+from .booking import booking_error, next_appointment_date
+from .models import Appointment, Patient, SlotCapacity, TIME_SLOTS
+
+
+class AvailabilitySerializer(serializers.Serializer):
+    date = serializers.DateField()
+    slots = serializers.ListField()
+
+
+class AppointmentSerializer(serializers.ModelSerializer):
+    patient = serializers.SerializerMethodField()
+    appointment_time = serializers.TimeField(format='%H:%M')
+    status_label = serializers.CharField(source='get_status_display', read_only=True)
+
+    class Meta:
+        model = Appointment
+        fields = ['id', 'reference_number', 'patient', 'additional_names', 'appointment_date', 'appointment_time', 'status', 'status_label', 'created_at', 'confirmation_sent_at', 'reminder_sent_at']
+
+    def get_patient(self, obj):
+        return {
+            'full_name': obj.patient.full_name,
+            'email': obj.patient.email,
+            'contact_number': obj.patient.contact_number,
+            'address': obj.patient.address,
+            'age': obj.patient.age,
+            'gender': obj.patient.gender,
+        }
+
+
+class AppointmentCreateSerializer(serializers.Serializer):
+    full_name = serializers.CharField(max_length=160)
+    email = serializers.EmailField(required=False, allow_blank=True, default='')
+    contact_number = serializers.CharField(max_length=40, required=False, allow_blank=True, default='')
+    address = serializers.CharField()
+    age = serializers.IntegerField(min_value=1, max_value=120, required=False, allow_null=True, default=None)
+    gender = serializers.ChoiceField(choices=Patient.GENDER_CHOICES, required=False, allow_blank=True, default='')
+    appointment_date = serializers.DateField(default=next_appointment_date)
+    additional_names = serializers.ListField(child=serializers.CharField(max_length=160), required=False, allow_empty=True)
+
+    def validate_appointment_date(self, value):
+        error = booking_error(value)
+        if error:
+            raise serializers.ValidationError(error)
+        return value
+
+
+class StatusUpdateSerializer(serializers.Serializer):
+    status = serializers.ChoiceField(choices=['confirmed', 'completed', 'cancelled', 'pending'])
